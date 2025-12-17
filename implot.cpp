@@ -915,26 +915,34 @@ inline int GetTimeStep(int max_divs, ImPlotTimeUnit unit) {
 
 ImPlotTime MkGmtTime(struct tm *ptm) {
     ImPlotTime t;
-#ifdef _WIN32
+#if defined(_WIN32)
     t.S = _mkgmtime(ptm);
+#elif defined(__SWITCH__)
+    // libnx/newlib doesn't provide timegm(). Treat ptm as UTC and convert to epoch seconds.
+    auto days_from_civil = [](int y, unsigned m, unsigned d) -> int64_t {
+        y -= m <= 2;
+        const int era = (y >= 0 ? y : y - 399) / 400;
+        const unsigned yoe = (unsigned)(y - era * 400);
+        const unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+        const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        return (int64_t)era * 146097 + (int64_t)doe - 719468; // days since 1970-01-01
+    };
+
+    const int y = ptm->tm_year + 1900;
+    const unsigned mon = (unsigned)(ptm->tm_mon + 1);
+    const unsigned day = (unsigned)ptm->tm_mday;
+
+    const int64_t days = days_from_civil(y, mon, day);
+    t.S = (time_t)(days * 86400LL +
+                   (int64_t)ptm->tm_hour * 3600LL +
+                   (int64_t)ptm->tm_min * 60LL +
+                   (int64_t)ptm->tm_sec);
 #else
     t.S = timegm(ptm);
 #endif
     if (t.S < 0)
         t.S = 0;
     return t;
-}
-
-tm* GetGmtTime(const ImPlotTime& t, tm* ptm)
-{
-#ifdef _WIN32
-  if (gmtime_s(ptm, &t.S) == 0)
-    return ptm;
-  else
-    return nullptr;
-#else
-  return gmtime_r(&t.S, ptm);
-#endif
 }
 
 ImPlotTime MkLocTime(struct tm *ptm) {
